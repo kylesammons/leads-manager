@@ -176,16 +176,7 @@ def load_leads_data(table_name, client_id, date_range_type, start_date=None, end
     
     try:
         # Build date filter based on selection
-        if date_range_type == "custom" and start_date and end_date:
-            date_filter = f"AND date BETWEEN '{start_date}' AND '{end_date}'"
-        elif date_range_type == "month_to_date":
-            date_filter = "AND date BETWEEN DATE_TRUNC(CURRENT_DATE(), MONTH) AND CURRENT_DATE()"
-        elif date_range_type == "year_to_date":
-            date_filter = "AND date BETWEEN DATE_TRUNC(CURRENT_DATE(), YEAR) AND CURRENT_DATE()"
-        elif date_range_type == "quarter_to_date":
-            date_filter = "AND date BETWEEN DATE_TRUNC(CURRENT_DATE(), QUARTER) AND CURRENT_DATE()"
-        else:
-            date_filter = "AND date BETWEEN DATE_TRUNC(CURRENT_DATE(), MONTH) AND CURRENT_DATE()"  # Default
+        date_filter = f"AND date BETWEEN '{start_date}' AND '{end_date}'"
         
         # Ensure Client_ID is properly quoted/handled as string
         # Check if client_id is numeric or string
