@@ -441,7 +441,6 @@ if not st.session_state.authenticated:
 # Main application (after authentication)
 st.title(f"{st.session_state.client_name} Leads Manager")
 
-# Sidebar
 with st.sidebar:
     st.image("Waves-Logo_Color.svg", width=200)
     st.markdown("<br>", unsafe_allow_html=True)
@@ -449,40 +448,19 @@ with st.sidebar:
     st.subheader("📅 Date Range")
     
     with st.expander("Select Date Range", expanded=False):
-        date_range_options = {
-            "month_to_date": "Month To Date",
-            "quarter_to_date": "Quarter To Date",
-            "year_to_date": "Year To Date",
-            "custom": "Custom Date Range"
-        }
-        
-        date_range_type = st.selectbox(
-            "Date Range Type",
-            options=list(date_range_options.keys()),
-            format_func=lambda x: date_range_options[x],
-            index=0,  # Default to month_to_date
-            help="Choose between custom date range or predefined periods"
-        )
-        
-        start_date = None
-        end_date = None
-        
-        if date_range_type == "custom":
-            col1, col2 = st.columns(2)
-            with col1:
-                start_date = st.date_input(
-                    "Start Date",
-                    value=date.today() - timedelta(days=30),
-                    help="Select start date"
-                )
-            with col2:
-                end_date = st.date_input(
-                    "End Date", 
-                    value=date.today(),
-                    help="Select end date"
-                )
-        else:
-            st.info(f"Predefined range: {date_range_options[date_range_type]}")
+        col1, col2 = st.columns(2)
+        with col1:
+            start_date = st.date_input(
+                "Start Date",
+                value=date.today().replace(day=1),  # First day of current month
+                help="Select start date"
+            )
+        with col2:
+            end_date = st.date_input(
+                "End Date",
+                value=date.today(),
+                help="Select end date"
+            )
     
     st.markdown("---")
     
@@ -499,17 +477,15 @@ with st.spinner("Loading leads data..."):
     ensure_editable_columns_exist("all_marchex_table")
     
     st.session_state.form_leads_df = load_leads_data(
-        "all_form_table", 
-        st.session_state.client_id,
-        date_range_type,
-        start_date,
-        end_date
+    "all_form_table",
+    st.session_state.client_id,
+    start_date,
+    end_date
     )
-
+    
     st.session_state.call_leads_df = load_leads_data(
-        "all_marchex_table", 
+        "all_marchex_table",
         st.session_state.client_id,
-        date_range_type,
         start_date,
         end_date
     )
