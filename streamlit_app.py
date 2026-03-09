@@ -59,7 +59,6 @@ def init_bigquery_client():
 def load_client_credentials():
     """Load client credentials from CSV file"""
     try:
-        # Try to load from the same directory as the script
         csv_path = "The Reef - Clients.csv"
         
         if not os.path.exists(csv_path):
@@ -69,7 +68,6 @@ def load_client_credentials():
         
         df = pd.read_csv(csv_path)
         
-        # Ensure required columns exist
         if 'Client_Name' not in df.columns or 'Client_ID' not in df.columns:
             st.error("CSV file must contain 'Client_Name' and 'Client_ID' columns")
             return pd.DataFrame()
@@ -84,22 +82,15 @@ def load_client_credentials():
 def verify_login(username, password):
     """Verify login credentials against CSV file"""
     try:
-        # Load client credentials from CSV
         clients_df = load_client_credentials()
         
         if clients_df.empty:
             return None, None
         
-        # Normalize username (lowercase and trim spaces)
         username_normalized = username.lower().strip().replace(" ", "")
-        
-        # Normalize Client_Name in dataframe for comparison
         clients_df['normalized_name'] = clients_df['Client_Name'].str.lower().str.strip().str.replace(" ", "")
-        
-        # Convert Client_ID to string for comparison
         clients_df['Client_ID'] = clients_df['Client_ID'].astype(str)
         
-        # Find matching client
         match = clients_df[
             (clients_df['normalized_name'] == username_normalized) & 
             (clients_df['Client_ID'] == password)
@@ -123,69 +114,50 @@ def ensure_editable_columns_exist(table_name):
     try:
         table_ref = f"{PROJECT_ID}.master.{table_name}"
         table = client.get_table(table_ref)
-        
-        # Check existing columns
         existing_columns = [field.name for field in table.schema]
         
-        # Add Lead_Status column if it doesn't exist
         if 'Lead_Status' not in existing_columns:
             try:
-                # Step 1: Add column
                 client.query(f"ALTER TABLE `{table_ref}` ADD COLUMN Lead_Status STRING").result()
-                # Step 2: Set default
                 client.query(f"ALTER TABLE `{table_ref}` ALTER COLUMN Lead_Status SET DEFAULT 'Pending'").result()
-                # Step 3: Update existing rows
                 client.query(f"UPDATE `{table_ref}` SET Lead_Status = 'Pending' WHERE Lead_Status IS NULL").result()
-            except Exception as e:
-                pass  # Silently skip if column already exists or can't be added
+            except Exception:
+                pass
         
-        # Add Revenue column if it doesn't exist
         if 'Revenue' not in existing_columns:
             try:
-                # Step 1: Add column
                 client.query(f"ALTER TABLE `{table_ref}` ADD COLUMN Revenue FLOAT64").result()
-                # Step 2: Set default
                 client.query(f"ALTER TABLE `{table_ref}` ALTER COLUMN Revenue SET DEFAULT 0.0").result()
-                # Step 3: Update existing rows
                 client.query(f"UPDATE `{table_ref}` SET Revenue = 0.0 WHERE Revenue IS NULL").result()
-            except Exception as e:
-                pass  # Silently skip if column already exists or can't be added
+            except Exception:
+                pass
         
-        # Add Notes column if it doesn't exist
         if 'Notes' not in existing_columns:
             try:
-                # Step 1: Add column
                 client.query(f"ALTER TABLE `{table_ref}` ADD COLUMN Notes STRING").result()
-                # Step 2: Set default
                 client.query(f"ALTER TABLE `{table_ref}` ALTER COLUMN Notes SET DEFAULT ''").result()
-                # Step 3: Update existing rows
                 client.query(f"UPDATE `{table_ref}` SET Notes = '' WHERE Notes IS NULL").result()
-            except Exception as e:
-                pass  # Silently skip if column already exists or can't be added
+            except Exception:
+                pass
         
         return True
         
     except Exception as e:
         return False
 
-def load_leads_data(table_name, client_id, date_range_type, start_date=None, end_date=None):
+def load_leads_data(table_name, client_id, start_date, end_date):
     """Load leads data from BigQuery table with date filtering"""
     client = init_bigquery_client()
     if not client:
         return pd.DataFrame()
     
     try:
-        # Build date filter based on selection
         date_filter = f"AND date BETWEEN '{start_date}' AND '{end_date}'"
         
-        # Ensure Client_ID is properly quoted/handled as string
-        # Check if client_id is numeric or string
         try:
-            # Try to convert to int - if it works, use without quotes
             client_id_int = int(client_id)
             client_id_filter = f"Client_ID = {client_id_int}"
         except (ValueError, TypeError):
-            # If it's a string (like 'W015'), use quotes
             client_id_filter = f"Client_ID = '{client_id}'"
         
         query = f"""
@@ -198,7 +170,6 @@ def load_leads_data(table_name, client_id, date_range_type, start_date=None, end
         
         df = client.query(query).to_dataframe()
         
-        # Ensure editable columns exist with proper defaults
         if 'Lead_Status' not in df.columns:
             df['Lead_Status'] = 'Pending'
         else:
@@ -220,7 +191,7 @@ def load_leads_data(table_name, client_id, date_range_type, start_date=None, end
         st.error(f"Error loading data: {str(e)}")
         return pd.DataFrame()
 
-def save_leads_data(df, table_name, client_id, date_range_type, start_date=None, end_date=None):
+def save_leads_data(df, table_name):
     """Save only the updated rows back to BigQuery, preserving other data"""
     client = init_bigquery_client()
     if not client:
@@ -228,15 +199,10 @@ def save_leads_data(df, table_name, client_id, date_range_type, start_date=None,
     
     try:
         table_ref = f"{PROJECT_ID}.master.{table_name}"
-        
-        # Extract only the columns we need for the update
-        # We need lead_id to match records, plus the 3 editable columns
         update_df = df[['lead_id', 'Lead_Status', 'Revenue', 'Notes']].copy()
         
-        # Build a temp table with just the update columns
         temp_table = f"{PROJECT_ID}.master.temp_{table_name}_{int(time.time())}"
         
-        # Load the edited data to a temp table
         job_config = bigquery.LoadJobConfig(
             write_disposition="WRITE_TRUNCATE",
             schema=[
@@ -250,7 +216,6 @@ def save_leads_data(df, table_name, client_id, date_range_type, start_date=None,
         job = client.load_table_from_dataframe(update_df, temp_table, job_config=job_config)
         job.result()
         
-        # Use MERGE to update only the editable columns based on lead_id
         merge_query = f"""
         MERGE `{table_ref}` T
         USING `{temp_table}` S
@@ -263,15 +228,12 @@ def save_leads_data(df, table_name, client_id, date_range_type, start_date=None,
         """
         
         client.query(merge_query).result()
-        
-        # Clean up temp table
         client.delete_table(temp_table, not_found_ok=True)
         
         return True
         
     except Exception as e:
         st.error(f"Error saving data: {str(e)}")
-        # Try to clean up temp table
         try:
             client.delete_table(temp_table, not_found_ok=True)
         except:
@@ -280,7 +242,6 @@ def save_leads_data(df, table_name, client_id, date_range_type, start_date=None,
 
 def calculate_scorecard_metrics(form_df, call_df):
     """Calculate metrics for scorecards"""
-    # Ensure Lead_Status column exists in both dataframes
     if not form_df.empty and 'Lead_Status' not in form_df.columns:
         form_df['Lead_Status'] = 'Pending'
     if not call_df.empty and 'Lead_Status' not in call_df.columns:
@@ -327,7 +288,6 @@ def display_scorecards(metrics):
     </style>
     """, unsafe_allow_html=True)
     
-    # First row
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -354,9 +314,8 @@ def display_scorecards(metrics):
         </div>
         """, unsafe_allow_html=True)
     
-    st.write("")  # Spacing
+    st.write("")
     
-    # Second row
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
@@ -452,7 +411,7 @@ with st.sidebar:
         with col1:
             start_date = st.date_input(
                 "Start Date",
-                value=date.today().replace(day=1),  # First day of current month
+                value=date.today().replace(day=1),
                 help="Select start date"
             )
         with col2:
@@ -470,17 +429,16 @@ with st.sidebar:
         st.session_state.client_id = None
         st.rerun()
 
-# Load data based on date range
+# Load data
 with st.spinner("Loading leads data..."):
-    # Ensure editable columns exist in both tables
     ensure_editable_columns_exist("all_form_table")
     ensure_editable_columns_exist("all_marchex_table")
     
     st.session_state.form_leads_df = load_leads_data(
-    "all_form_table",
-    st.session_state.client_id,
-    start_date,
-    end_date
+        "all_form_table",
+        st.session_state.client_id,
+        start_date,
+        end_date
     )
     
     st.session_state.call_leads_df = load_leads_data(
@@ -505,17 +463,13 @@ with tab1:
     form_df = st.session_state.form_leads_df.copy()
     
     if not form_df.empty:
-        # Count pending statuses
         pending_count = len(form_df[form_df['Lead_Status'] == 'Pending'])
-        
         st.write(f"Total Form Leads: `{len(form_df)}` | Pending Lead Statuses: `{pending_count}`")
         
-        # Get list of non-editable columns
         editable_cols = ['Lead_Status', 'Revenue', 'Notes']
         all_cols = form_df.columns.tolist()
         disabled_cols = [col for col in all_cols if col not in editable_cols]
         
-        # Display editable dataframe
         edited_form_df = st.data_editor(
             form_df,
             use_container_width=True,
@@ -544,15 +498,13 @@ with tab1:
             key="form_leads_editor"
         )
         
-        # Check if changes were made
         if not edited_form_df.equals(form_df):
             st.session_state.form_changes_made = True
         
-        # Show save button if changes were made
         if st.session_state.form_changes_made:
             if st.button("💾 Save Changes", type="primary", key="save_form_leads"):
                 with st.spinner("Saving changes..."):
-                    if save_leads_data(edited_form_df, "all_form_table", st.session_state.client_id, date_range_type, start_date, end_date):
+                    if save_leads_data(edited_form_df, "all_form_table"):
                         st.session_state.form_leads_df = edited_form_df
                         st.session_state.form_changes_made = False
                         st.toast("Leads updated successfully!", icon="✅")
@@ -569,17 +521,13 @@ with tab2:
     call_df = st.session_state.call_leads_df.copy()
     
     if not call_df.empty:
-        # Count pending statuses
         pending_count = len(call_df[call_df['Lead_Status'] == 'Pending'])
-        
         st.write(f"Total Call Leads: `{len(call_df)}` | Pending Lead Statuses: `{pending_count}`")
         
-        # Get list of non-editable columns
         editable_cols = ['Lead_Status', 'Revenue', 'Notes']
         all_cols = call_df.columns.tolist()
         disabled_cols = [col for col in all_cols if col not in editable_cols]
         
-        # Display editable dataframe
         edited_call_df = st.data_editor(
             call_df,
             use_container_width=True,
@@ -608,15 +556,13 @@ with tab2:
             key="call_leads_editor"
         )
         
-        # Check if changes were made
         if not edited_call_df.equals(call_df):
             st.session_state.call_changes_made = True
         
-        # Show save button if changes were made
         if st.session_state.call_changes_made:
             if st.button("💾 Save Changes", type="primary", key="save_call_leads"):
                 with st.spinner("Saving changes..."):
-                    if save_leads_data(edited_call_df, "all_marchex_table", st.session_state.client_id, date_range_type, start_date, end_date):
+                    if save_leads_data(edited_call_df, "all_marchex_table"):
                         st.session_state.call_leads_df = edited_call_df
                         st.session_state.call_changes_made = False
                         st.success("✅ Call leads updated successfully!")
