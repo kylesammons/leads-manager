@@ -18,11 +18,18 @@ def init_bigquery_client():
     try:
         credentials = None
 
+        # Drive scope is required for BigQuery external tables backed by Google Sheets
+        SCOPES = [
+            "https://www.googleapis.com/auth/bigquery",
+            "https://www.googleapis.com/auth/drive.readonly",
+        ]
+
         # Method 1: Try Streamlit secrets (for deployment)
         try:
             if hasattr(st, 'secrets') and 'gcp_service_account' in st.secrets:
                 credentials = service_account.Credentials.from_service_account_info(
-                    st.secrets["gcp_service_account"]
+                    st.secrets["gcp_service_account"],
+                    scopes=SCOPES
                 )
         except Exception:
             pass
@@ -32,7 +39,10 @@ def init_bigquery_client():
             try:
                 credentials_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
                 if credentials_path and os.path.exists(credentials_path):
-                    credentials = service_account.Credentials.from_service_account_file(credentials_path)
+                    credentials = service_account.Credentials.from_service_account_file(
+                        credentials_path,
+                        scopes=SCOPES
+                    )
             except Exception:
                 pass
 
@@ -41,7 +51,10 @@ def init_bigquery_client():
             try:
                 hardcoded_path = '/Users/trimark/Desktop/Jupyter_Notebooks/trimark-tdp-87c89fbd0816.json'
                 if os.path.exists(hardcoded_path):
-                    credentials = service_account.Credentials.from_service_account_file(hardcoded_path)
+                    credentials = service_account.Credentials.from_service_account_file(
+                        hardcoded_path,
+                        scopes=SCOPES
+                    )
             except Exception:
                 pass
 
